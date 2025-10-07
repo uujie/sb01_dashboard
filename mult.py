@@ -77,7 +77,7 @@ area_config = {
                 "comparison_file": "./SJ/SB02_NOW/SB02_ComparisonTable.xlsx",
                 "floors": {
                     "1F": {"tt": "./SJ/SB02_NOW/RAW/SB02_1F_TT_202412.csv", "dcc": "./SJ/SB02_NOW/RAW/SB02-1F-DCC1201-1231.csv", "pv_replace": None},
-                    "2F": {"tt": "./SJ/SB02_NOW/RAW/SB02_2F_TT_202412.csv", "dcc": "./SJ/SB02_NOW/RAW/SB02-2F-DCC1201-1231.csv", "pv_replace": ("_TTHT_TT", "_TTHT_HT")},
+                    "2F": {"tt": "./SJ/SB02_NOW/RAW/SB02_2F_TT_202412.csv", "dcc": "./SJ/SB02_NOW/RAW/SB02-2F-DCC1201-1231.csv", "pv_replace": None},
                 },
             },
             "SL01": { 
