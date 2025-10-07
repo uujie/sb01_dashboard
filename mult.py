@@ -19,7 +19,7 @@ def scan_qa02_dcc(base_path="CHD/QA02_NOW/QA02 RAW"):
                     dcc_map[floor].append(os.path.join(base_path, file))
     return dcc_map
 
-# === 通用掃描（支援 .xlsx/.csv，並自動偵測 1F/2F/3F/4F）→ 給 QA08 用 ===
+# === 通用掃描（支援 .xlsx/.csv，並自動偵測 1F/2F/3F/4F/...）→ 給 QA08/SL01 用 ===
 def scan_dcc_any(base_path, floors_hint=("1F","2F","3F","4F"), exts=(".xlsx", ".csv")):
     dcc_map = {f: [] for f in floors_hint}
     if not os.path.exists(base_path):
@@ -43,6 +43,7 @@ def read_table(path, **kwargs):
     else:
         return pd.read_excel(path, sheet_name=0, **kwargs)
 
+# === 預設路徑 ===
 qa02_raw_path = "CHD/QA02_NOW/QA02 RAW"
 qa02_layout_path = "CHD/QA02_NOW/QA02-DCC-Layout_20240316V3.xlsx"
 qa02_dcc_map = scan_qa02_dcc()
@@ -59,12 +60,13 @@ qa06_raw_path = "CHD/QA06_NOW/RAW"
 qa06_layout_path = "CHD/QA06_NOW/QA06-DCC-Layout_20241028.xlsx"
 qa06_dcc_map = scan_qa02_dcc(base_path="CHD/QA06_NOW/RAW")
 
+# === 區域設定 ===
 area_config = {
     "SJ": {
         "factories": {
             "SB01": {
                 "layout_file": "./SJ/SB01_NOW/SB01 layout_20250421.xlsx",
-                "comparison_file": "./SJ/SB01_NOW/SB01_ComparisonTable.xlsx",  # Max correlation 對應表
+                "comparison_file": "./SJ/SB01_NOW/SB01_ComparisonTable.xlsx",  # Max correlation / INAP 對應表
                 "floors": {
                     "1F": {"tt": "./SJ/SB01_NOW/SB01-RAW_OK/SB01_1F_TT.csv", "dcc": "./SJ/SB01_NOW/SB01-RAW_OK/SB01-1F-DCC0501-0601.csv", "pv_replace": None},
                     "2F": {"tt": "./SJ/SB01_NOW/SB01-RAW_OK/SB01_2F_TT.csv", "dcc": "./SJ/SB01_NOW/SB01-RAW_OK/SB01-2F-DCC0501-0601.csv", "pv_replace": ("_TTHT_TT", "_TTHT_HT")},
@@ -77,18 +79,20 @@ area_config = {
                 "comparison_file": "./SJ/SB02_NOW/SB02_ComparisonTable.xlsx",
                 "floors": {
                     "1F": {"tt": "./SJ/SB02_NOW/RAW/SB02_1F_TT_202412.csv", "dcc": "./SJ/SB02_NOW/RAW/SB02-1F-DCC1201-1231.csv", "pv_replace": None},
+                    # 2F 實際 TT 欄位是 ...TTxx.PV，因此不要把 TT→HT
                     "2F": {"tt": "./SJ/SB02_NOW/RAW/SB02_2F_TT_202412.csv", "dcc": "./SJ/SB02_NOW/RAW/SB02-2F-DCC1201-1231.csv", "pv_replace": None},
                 },
             },
-            "SL01": { 
-                "layout_file": "SJ/SL01_NOW/SL01 layout - 20250421.xlsx", 
-                "floors": { 
-                    floor: { "tt": os.path.join("SJ/SL01_NOW/SL-RAW_20240418", 
-                    f"SL_{floor}_TT_202305.csv"), 
-                    "dcc_multi": dcc_list, # 關鍵：2F 以上把 TT 的 base 名稱強制改成 *_TTHTPT_HT01.PV 
-                    "pv_replace": None if floor in ["1F"] else ("_TTHTPT_TT", "_TTHTPT_HT")
-                    } for floor, dcc_list in scan_dcc_any("SJ/SL01_NOW/SL-RAW_20240418", ("1F","2F","3F","4F","5F","6F"), (".csv",)).items() 
-                } 
+            "SL01": {
+                "layout_file": "SJ/SL01_NOW/SL01 layout - 20250421.xlsx",
+                "floors": {
+                    floor: {
+                        "tt": os.path.join("SJ/SL01_NOW/SL-RAW_20240418", f"SL_{floor}_TT_202305.csv"),
+                        "dcc_multi": dcc_list,
+                        "pv_replace": None if floor in ["1F"] else ("_TTHTPT_TT", "_TTHTPT_HT"),
+                    }
+                    for floor, dcc_list in scan_dcc_any("SJ/SL01_NOW/SL-RAW_20240418", ("1F","2F","3F","4F","5F","6F"), (".csv",)).items()
+                },
             },
         },
     },
@@ -96,7 +100,7 @@ area_config = {
         "factories": {
             "QA02": {
                 "layout_file": qa02_layout_path,
-                "comparison_file": "./CHD/QA02_NOW/A02_ComparisonTable.xlsx",  # Max correlation 對應表
+                "comparison_file": "./CHD/QA02_NOW/A02_ComparisonTable.xlsx",
                 "floors": {
                     floor: {
                         "tt": f"CHD/QA02_NOW/QA02 RAW/A02_{floor}_TT.csv",
@@ -150,7 +154,7 @@ selected_factory = st.sidebar.selectbox("選擇工廠", list(area_config[selecte
 factory_cfg = area_config[selected_area]["factories"][selected_factory]
 
 def sort_floors(floors):
-    floor_order = {'1F': 1, '2F': 2, '3F': 3, '4F': 4}
+    floor_order = {'1F': 1, '2F': 2, '3F': 3, '4F': 4, '5F': 5, '6F': 6}
     return sorted(floors, key=lambda f: floor_order.get(f, 999))
 
 sorted_floors = sort_floors(list(factory_cfg["floors"].keys()))
@@ -224,20 +228,33 @@ if not dcc_col or not pv_col:
 related_dccs = layout_df[layout_df['溫溼度看板'].isin(selected_panels)][dcc_col].dropna().unique().tolist()
 pv_bases = layout_df[layout_df['溫溼度看板'].isin(selected_panels)][pv_col].dropna().tolist()
 
-# === PV 欄位對應（QA02/QA08 用精準對應，其它維持原本）===
+# === PV 欄位對應（加強：同時嘗試「原始」與「替換後」兩種 base）===
+def _norm(s: str) -> str:
+    return re.sub(r"[-\s]+", "_", str(s)).strip().upper()
+
 pv_cols = []
 if selected_area == "CHD" and selected_factory in ("QA02", "QA08"):
+    # CHD QA02/QA08 維持嚴格的 base+".PV" 對應
     for base in pv_bases:
         pv_name = f"{base}.PV"
         if pv_name in air_df.columns:
             pv_cols.append(pv_name)
 else:
-    for base in pv_bases:
-        base = str(base).strip()
+    for base in map(lambda x: str(x).strip(), pv_bases):
+        candidates = {base}
         if floor_cfg.get("pv_replace"):
-            base = base.replace(*floor_cfg["pv_replace"])
-        matches = [c for c in air_df.columns if c.upper().endswith('.PV') and base.upper().replace("-", "_") in c.upper().replace("-", "_")]
-        pv_cols.extend([m for m in matches if m not in pv_cols])
+            candidates.add(base.replace(*floor_cfg["pv_replace"]))
+        # 先試精確，再做包含式
+        for cand in candidates:
+            exact = f"{cand}.PV"
+            if exact in air_df.columns and exact not in pv_cols:
+                pv_cols.append(exact)
+                continue
+            for c in air_df.columns:
+                if str(c).upper().endswith(".PV") and _norm(cand) in _norm(c):
+                    if c not in pv_cols:
+                        pv_cols.append(c)
+
 pv_cols = list(dict.fromkeys(pv_cols))  # 去重、保序
 
 if not pv_cols:
@@ -249,8 +266,9 @@ if not pv_cols:
 # === 合併資料（不重取樣）===
 merged = pd.merge(dcc_df, air_df[["DateTime"] + pv_cols], on="DateTime", how="outer").sort_values("DateTime")
 
-# === 從 ComparisonTable 讀取：Max correlation 包含目前看板的列 → 取 DCC_name，對應欄位並加入作圖 ===
-extra_cols = []  # (MC) 會加在圖例前綴
+# === 從 ComparisonTable 讀取：同時支援多欄位的 MC 與 INAP ===
+extra_cols = []   # 額外要畫的欄位
+extra_tags = {}   # 欄位 -> "MC" 或 "INAP"
 
 cmp_path = factory_cfg.get("comparison_file")
 if cmp_path and os.path.exists(cmp_path):
@@ -267,63 +285,112 @@ if cmp_path and os.path.exists(cmp_path):
 
         cmp_df.columns = cmp_df.columns.astype(str).str.strip()
 
-        # 欄位名稱容錯（擴充）
+        # DCC 欄位（抓第一個匹配到的）
         dcc_col_cmp = next((c for c in cmp_df.columns if c.strip().lower() in [
             "dcc name","dcc_name","dcc名稱","dcc名称","dccname","dcc","dcc點位","dcc欄位"
         ]), None)
-        panel_col_cmp = next((c for c in cmp_df.columns if c.strip().lower() in [
-            "max correlation","max_correlation","maxcorr","mc","mc targets","targets",
-            "溫溼度看板","看板","看板群","panel","panels","對應看板","看板清單","看板列表"
-        ]), None)
 
-        # 側欄偵錯
+        # MC/INAP 可能有多欄：全部抓出來
+        def _is_mc(colname: str) -> bool:
+            k = colname.strip().lower()
+            return any(kw in k for kw in [
+                "max correlation","max_correlation","maxcorr","mc","mc targets","targets",
+                "溫溼度看板","看板","看板群","panel","panels","對應看板","看板清單","看板列表"
+            ])
+
+        def _is_inap(colname: str) -> bool:
+            k = colname.strip().lower()
+            return any(kw in k for kw in [
+                "inappropriate","不適當","不合適","不合格","inap","in-appropriate","Inappropriate"
+            ])
+
+        mc_cols   = [c for c in cmp_df.columns if _is_mc(c)]
+        inap_cols = [c for c in cmp_df.columns if _is_inap(c)]
         st.sidebar.write("【CMP】使用工作表:", sheet_used)
-        st.sidebar.write("【CMP】欄位列表:", list(cmp_df.columns))
-        st.sidebar.write("【CMP】DCC欄/Panel欄:", dcc_col_cmp, "/", panel_col_cmp)
+        st.sidebar.write("【CMP】DCC欄:", dcc_col_cmp)
+        st.sidebar.write("【CMP】欄位清單:", mc_cols)
+        st.sidebar.write("【CMP】INAP欄位清單:", inap_cols)
 
-        if dcc_col_cmp and panel_col_cmp:
-            def _norm(s: str) -> str:
-                return re.sub(r"\s+", "", str(s)).upper()
+        if dcc_col_cmp and (mc_cols or inap_cols):
+            selected_set = {_norm(p) for p in selected_panels}
 
-            panel_set = {_norm(p) for p in selected_panels}
+            def _split_tokens(cell):
+                return [t.strip() for t in re.split(r"[、,;|/\\\s]+", str(cell)) if t.strip()]
 
-            def contains_any_panel(cell):
-                tokens = re.split(r"[、,;|/\\\s]+", str(cell))
-                tokens = [_norm(t) for t in tokens if t.strip()]
-                return any(t in panel_set for t in tokens)
+            def _keyize(col: str) -> str:
+                return re.sub(r"[-\s]+", "_", str(col)).upper()
 
-            matched = cmp_df[cmp_df[panel_col_cmp].apply(contains_any_panel)]
-            base_names = (
-                matched[dcc_col_cmp]
-                .dropna().astype(str).str.strip().unique().tolist()
-            )
-            st.sidebar.write("【CMP】命中列數:", len(matched))
-            st.sidebar.write("【CMP】抓到 base DCC 名稱:", base_names)
+            merged_cols_u = {_keyize(c): c for c in merged.columns}
+            air_cols_u    = {_keyize(c): c for c in air_df.columns}
 
-            # 嘗試把 base 名稱映射成實際欄位：exact / _CV5 / _TT4 / .PV
-            resolved_cols = []
-            for base in base_names:
+            def _rows_hit_by_panels(df: pd.DataFrame, panel_col: str) -> pd.DataFrame:
+                def contains_any_panel(cell) -> bool:
+                    toks = [_norm(t) for t in _split_tokens(cell)]
+                    return any(t in selected_set for t in toks)
+                def yes_like(cell) -> bool:
+                    return str(cell).strip().lower() in {"y","yes","1","true","是","有"}
+                # 兩種條件擇一成立就算命中
+                return df[df[panel_col].apply(lambda x: contains_any_panel(x) or yes_like(x))]
+
+            tagged_bases = []  # list[(base, "MC"|"INAP")]
+
+            # 蒐集所有 MC 欄的命中
+            for col in mc_cols:
+                part = _rows_hit_by_panels(cmp_df, col)
+                bases = part[dcc_col_cmp].dropna().astype(str).apply(_split_tokens)
+                bases = sorted({b for lst in bases for b in lst})
+                st.sidebar.write(f"【CMP】MC 命中列數({col}):", len(part))
+                st.sidebar.write(f"【CMP】MC 抓到 base({col}):", bases)
+                for b in bases:
+                    tagged_bases.append((b, "MC"))
+
+            # 蒐集所有 INAP 欄的命中
+            for col in inap_cols:
+                part = _rows_hit_by_panels(cmp_df, col)
+                bases = part[dcc_col_cmp].dropna().astype(str).apply(_split_tokens)
+                bases = sorted({b for lst in bases for b in lst})
+                st.sidebar.write(f"【CMP】INAP 命中列數({col}):", len(part))
+                st.sidebar.write(f"【CMP】INAP 抓到 base({col}):", bases)
+                for b in bases:
+                    tagged_bases.append((b, "INAP"))
+
+            # 把 base 映射到實際欄位（先試 exact/_CV5/_TT4/.PV，再做包含式）
+            resolved = []
+            for base, tag in tagged_bases:
                 candidates = [base, f"{base}_CV5", f"{base}_TT4", f"{base}.PV"]
+                found_any = False
                 for c in candidates:
-                    if c in merged.columns or c in air_df.columns:
-                        resolved_cols.append(c)
+                    cu = _keyize(c)
+                    if cu in merged_cols_u:
+                        resolved.append((merged_cols_u[cu], tag)); found_any = True
+                    elif cu in air_cols_u:
+                        resolved.append((air_cols_u[cu], tag)); found_any = True
+                if not found_any:
+                    pat = _keyize(base)
+                    pick = [merged_cols_u[k] for k in merged_cols_u if pat in k]
+                    if not pick:
+                        pick = [air_cols_u[k] for k in air_cols_u if pat in k]
+                    for p in pick:
+                        resolved.append((p, tag))
 
-            # 併入 air_df 中存在但 merged 尚未有的
-            air_extra = [c for c in resolved_cols if c in air_df.columns and c not in merged.columns]
+            # 把 air_df 裡存在但 merged 尚未合併的欄位補進來
+            air_extra = [c for c, _ in resolved if c in air_df.columns and c not in merged.columns]
             if air_extra:
                 merged = pd.merge(merged, air_df[["DateTime"] + air_extra], on="DateTime", how="outer")
 
-            # 最終 extra_cols
-            extra_cols = list(dict.fromkeys(resolved_cols))
+            # 最終欄位＋標籤（同欄位若同時被 MC/INAP 命中，INAP 優先）
+            for c, tag in resolved:
+                if c not in extra_cols:
+                    extra_cols.append(c)
+                extra_tags[c] = "INAP" if tag == "INAP" else extra_tags.get(c, "MC")
+
             st.sidebar.write("【CMP】實際映射到欄位:", extra_cols)
-
+            st.sidebar.write("【CMP】欄位標籤 (MC/INAP):", extra_tags)
         else:
-            st.sidebar.write("【CMP】找不到 DCC/看板欄位，已略過。")
-
+            st.sidebar.write("【CMP】找不到 DCC 欄或 MC/INAP 欄，已略過。")
     except Exception as e:
         st.warning(f"讀取 ComparisonTable 失敗：{e}")
-# 若沒提供 comparison_file，則不做 MaxCorr 額外曲線
-
+# 若沒提供 comparison_file，則不做 MC/INAP 額外曲線
 
 # === 濾出要畫的欄位 ===
 value_cols = []
@@ -351,12 +418,10 @@ for c in value_cols:
             merged[c] = merged[c].apply(pd.to_numeric, errors='coerce').bfill(axis=1).iloc[:, 0]
         merged[c] = pd.to_numeric(merged[c], errors="coerce")
 
-# === 依 TT 檔的時間粒度（例如每分鐘）限制顯示，不做平均 ===
-# 以 TT 的 DateTime 作為基準單位：若 TT 全部是整分（秒=0），就對齊到每分鐘；
-# 若 TT 是 15 秒或 5 秒等倍數，也會自動對齊。否則 fallback 為秒級。
+# === 依 TT 檔的時間粒度限制顯示（不做平均）===
 plot_df = merged[["DateTime"] + value_cols].sort_values("DateTime").copy()
 
-# 推斷 TT 的最小顯示單位（基於 TT，而不是 DCC），避免圖上出現 00:01:15 這種細度
+# 推斷 TT 的最小顯示單位
 _tt_sec = air_df["DateTime"].dt.second
 _tt_micro = air_df["DateTime"].dt.microsecond
 if (_tt_sec.eq(0) & _tt_micro.eq(0)).all():
@@ -368,7 +433,7 @@ elif (_tt_sec.mod(5).eq(0) & _tt_micro.eq(0)).all():
 else:
     _base_unit = 'S'      # 秒級
 
-# 將所有資料時間對齊到 TT 的粒度，並在同一時段保留最後一筆（不做平均）
+# 對齊到 TT 的粒度，在同一時段保留最後一筆（不做平均）
 plot_df["DateTime"] = plot_df["DateTime"].dt.floor(_base_unit)
 plot_df = plot_df.groupby("DateTime", as_index=False).last()
 
@@ -378,16 +443,21 @@ for col in value_cols:
     if col not in plot_df.columns:
         continue
 
-    is_extra = col in extra_cols
-    label = col.replace(".PV", "")
-    if is_extra:
-        label = f"(MC) {label}"
+    tag = extra_tags.get(col)   # "MC" / "INAP" / None
+    prefix = f"({tag}) " if tag else ""
+    label = prefix + col.replace(".PV", "")
 
+    # CV5 主軸、非 CV5 次軸；INAP 更醒目
     if col.endswith("_CV5"):
-        style = dict(dash="solid", width=2)
+        style = dict(dash="solid", width=2 if tag != "INAP" else 3)
         sec_y = False
     else:
-        style = dict(dash="dashdot", width=3) if is_extra else dict(dash="dot", width=2)
+        if tag == "INAP":
+            style = dict(dash="dashdot", width=3)
+        elif tag == "MC":
+            style = dict(dash="dash", width=2)
+        else:
+            style = dict(dash="dot", width=2)
         sec_y = True
 
     fig.add_trace(
