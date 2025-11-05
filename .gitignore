@@ -1,0 +1,19 @@
+# 虛擬環境
+venv/
+.venv/
+
+# 暫存、快取
+__pycache__/
+*.log
+*.tmp
+
+# 大型資料
+*.xls
+*.zip
+*.pkl
+*.h5
+*.npy
+*.npz
+
+# Streamlit cache
+.streamlit/
