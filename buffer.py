@@ -196,39 +196,71 @@ area_config = {
             },
         },
     },
-    "Huai_an": {
-        "factories": {
-            "HB01": {
-                "layout_file": hb01_layout_path,
-                "comparison_file": "./Huai_an/HB01_NOW/HB01_ComparisonTable.xlsx",
-                "floors": {
-                    "1F": {
-                        "tt": os.path.join(hb01_raw_path, "HB01 1F.csv"),
-                        "dcc": os.path.join(hb01_raw_path, "HB01_1F_DCC.csv"),
-                        "pv_replace": None
-                    },
-                    "2F": {
-                        "tt": os.path.join(hb01_raw_path, "HB01 2F.csv"),
-                        "dcc": os.path.join(hb01_raw_path, "HB01_2F_DCC.csv"),
-                        "pv_replace": ("_TTHT_TT", "_TTHT_HT")
-                    },
-                    "3F": {
-                        "tt": os.path.join(hb01_raw_path, "HB01 3F.csv"),
-                        "dcc": os.path.join(hb01_raw_path, "HB01_3F_DCC.csv"),
-                        "pv_replace": ("_TTHT_TT", "_TTHT_HT")
-                    },
-                    "4F": {
-                        "tt": os.path.join(hb01_raw_path, "HB01 4F.csv"),
-                        "dcc": os.path.join(hb01_raw_path, "HB01_4F_DCC.csv"),
-                        "pv_replace": ("_TTHT_TT", "_TTHT_HT")
-                    },
-                },
-            },
-        },
-    },
 
 }
 
+# === Huai_an 自動設定 ===
+huai_an_factories = ["A8", "A9", "B6", "B7", "HB01", "HB04", "HB06", "HC01"]
+huai_an_config = {}
+
+for f in huai_an_factories:
+    base = f"Huai_an/{f}_NOW"
+    raw_path = os.path.join(base, "RAW")
+
+    if not os.path.exists(raw_path):
+        print(f"⚠️ 找不到 {raw_path}，略過 {f}")
+        continue
+
+    # 自動找 layout 檔案
+    layout_file = next(
+        (os.path.join(base, file)
+         for file in os.listdir(base)
+         if "layout" in file.lower() and file.endswith((".xlsx", ".xls"))),
+        None
+    )
+    if not layout_file:
+        print(f"⚠️ {f} 缺少 layout 檔案，略過。")
+        continue
+
+    cmp_path = os.path.join(base, f"{f}_ComparisonTable.xlsx")
+
+    # 掃 RAW 裡的 DCC 檔案
+    dcc_map = scan_dcc_any(
+        base_path=raw_path,
+        floors_hint=("1F", "2F", "3F", "4F"),
+        exts=(".xlsx", ".csv")
+    )
+
+    floors_cfg = {}
+    for floor, dcc_list in dcc_map.items():
+        # 找樓層對應的 TT 檔案
+        tt_file = next(
+            (os.path.join(raw_path, file)
+             for file in os.listdir(raw_path)
+             if floor.lower() in file.lower() and "tt" in file.lower()),
+            None
+        )
+
+        if not tt_file:
+            print(f"⚠️ {f} {floor} 未找到 TT 檔案，略過。")
+            continue
+
+        floors_cfg[floor] = {
+            "tt": tt_file,
+            "dcc_multi": dcc_list,
+            "pv_replace": ("_TTHT_TT", "_TTHT_HT") if floor != "1F" else None,
+        }
+
+    # 加入設定
+    if floors_cfg:
+        huai_an_config[f] = {
+            "layout_file": layout_file,
+            "comparison_file": cmp_path if os.path.exists(cmp_path) else None,
+            "floors": floors_cfg,
+        }
+
+# ✅ 最後這一行：把 Huai_an 加進 area_config
+area_config["Huai_an"] = {"factories": huai_an_config}
 # === Streamlit UI ===
 st.set_page_config(page_title="DCC/TT 每分鐘真實曲線", layout="wide")
 selected_area = st.sidebar.selectbox("選擇廠區", list(area_config.keys()))

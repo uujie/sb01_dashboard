@@ -6,31 +6,6 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# === 支援大型 Excel 自動合併 (例如 _part1, _part2, ...) ===
-def load_large_excel(base_path):
-    """自動載入多個分割檔並合併成單一 DataFrame"""
-    import glob
-    folder = os.path.dirname(base_path)
-    base_name = os.path.splitext(os.path.basename(base_path))[0]
-    pattern = os.path.join(folder, f"{base_name}_part*.xlsx")
-
-    part_files = sorted(glob.glob(pattern))
-    if not part_files:
-        # 沒有分檔就讀原本的
-        print(f"🔹 使用原始檔：{base_path}")
-        return pd.read_excel(base_path)
-    
-    print(f"📂 偵測到分檔 {len(part_files)} 個，開始合併：")
-    df_list = []
-    for file in part_files:
-        print(f"   ➜ {os.path.basename(file)}")
-        df_list.append(pd.read_excel(file))
-    
-    df_all = pd.concat(df_list, ignore_index=True)
-    print(f"✅ 合併完成，總筆數：{len(df_all)}")
-    return df_all
-
-
 # === 自動掃描 QA02 RAW 中所有 DCC 檔案（CSV）===
 def scan_qa02_dcc(base_path="CHD/QA02_NOW/QA02 RAW"):
     dcc_map = {"1F": [], "2F": [], "3F": [], "4F": []}
@@ -221,7 +196,7 @@ area_config = {
             },
         },
     },
-    
+
 }
 
 # === Huai_an 自動設定 ===
@@ -286,8 +261,6 @@ for f in huai_an_factories:
 
 # ✅ 最後這一行：把 Huai_an 加進 area_config
 area_config["Huai_an"] = {"factories": huai_an_config}
-
-
 # === Streamlit UI ===
 st.set_page_config(page_title="DCC/TT 每分鐘真實曲線", layout="wide")
 selected_area = st.sidebar.selectbox("選擇廠區", list(area_config.keys()))
@@ -325,10 +298,7 @@ dcc_df = None
 if "dcc_multi" in floor_cfg:
     parts = []
     for p in floor_cfg["dcc_multi"]:
-        if p.lower().endswith(".xlsx"):
-            df = load_large_excel(p)  # ✅ 改這裡
-        else:
-            df = read_table(p)
+        df = read_table(p)
         df.columns = df.columns.str.strip()
         dt_col = next((c for c in df.columns if c.strip().lower() in ["datetime","startdatetime"]), None)
         if dt_col:
@@ -336,15 +306,11 @@ if "dcc_multi" in floor_cfg:
             parts.append(df)
     dcc_df = pd.concat(parts, ignore_index=True)
 else:
-    if floor_cfg["dcc"].lower().endswith(".xlsx"):
-        dcc_df = load_large_excel(floor_cfg["dcc"])  # ✅ 改這裡
-    else:
-        dcc_df = read_table(floor_cfg["dcc"])
+    dcc_df = read_table(floor_cfg["dcc"])
     if "DateTime" not in dcc_df.columns:
         dt = next((c for c in dcc_df.columns if str(c).lower()=="datetime"), None)
         if dt: dcc_df.rename(columns={dt:"DateTime"}, inplace=True)
     dcc_df["DateTime"] = pd.to_datetime(dcc_df["DateTime"])
-
 
 # === Huai_an 專用欄位重命名 ===
 if selected_area == "Huai_an":
@@ -444,7 +410,7 @@ if not pv_cols:
 # === 合併資料（不重取樣）===
 merged = pd.merge(dcc_df, air_df[["DateTime"] + pv_cols], on="DateTime", how="outer").sort_values("DateTime")
 
-
+# === 從 ComparisonTable 讀取：同時支援多欄位的 MC 與 INAP ===
 # === 從 ComparisonTable 讀取（統一所有廠區的 MC / INAP 邏輯）===
 extra_cols = []   # 額外要畫的欄位
 extra_tags = {}   # 欄位 -> "MC" 或 "INAP"
@@ -481,49 +447,27 @@ if cmp_path and os.path.exists(cmp_path):
 
         # === 核心邏輯 ===
         tagged_bases = []
-
         def _split_tokens(cell):
             return [t.strip() for t in re.split(r"[、,;|/\\\s]+", str(cell)) if t.strip()]
-
         def _keyize(s):
             return re.sub(r"[-\s]+", "_", str(s)).upper()
-
-        def _normalize_panel_name(name: str, area: str, floor: str = "") -> str:
+        def _normalize_panel_name(name: str, area: str) -> str:
             """
-            統一轉換看板名稱格式（支援 Huai_an 全樓層）
-            - 將 TTHT_07、TTHT07 → TTHT307（根據樓層自動補上樓層代碼）
-            - 例如：
-                Huai_an 1F + TTHT_01 → TTHT101
-                Huai_an 2F + TTHT_05 → TTHT205
-                Huai_an 3F + TTHT_07 → TTHT307
-                Huai_an 4F + TTHT_09 → TTHT409
+            將看板名稱正規化：
+            - 移除空白、底線
+            - Huai_an: 將 TTHT_01 → TTHT201 類型轉換
             """
-            if pd.isna(name):
-                return ""
-            name = str(name).strip().upper()
-            name = re.sub(r"[^A-Z0-9]", "", name)  # 去除空白與符號
-
-            if area == "Huai_an":
-                m = re.search(r"(\d{1,2})$", name)
-                num = m.group(1) if m else ""
-                floor_num = re.sub(r"[^0-9]", "", floor)
-                if floor_num and num:
-                    name = f"TTHT{floor_num}{num}"
-                else:
-                    name = name.replace("TTHT", "")
-            return name
-
-        # 🧩 Debug：顯示轉換結果
-        st.sidebar.write("【DEBUG】normalize 測試：", selected_panels, "→",
-                         [_normalize_panel_name(sp, selected_area, selected_floor) for sp in selected_panels])
+            name = str(name).strip().upper().replace(" ", "")
+            if area == "Huai_an" and re.match(r"TTHT_\d{2}", name):
+                num = re.findall(r"\d{2}", name)[0]
+                return f"TTHT2{num}"  # ✅ 轉換邏輯：_01 → 201, _02 → 202, ...
+            return re.sub(r"[^A-Z0-9]", "", name)
 
         # --- MC ---
         for col in mc_cols:
             for _, row in cmp_df.iterrows():
-                tokens = _split_tokens(row[col])
-                tokens_norm = [_normalize_panel_name(t, selected_area, selected_floor) for t in tokens]
-                selected_norm = [_normalize_panel_name(sp, selected_area, selected_floor) for sp in selected_panels]
-                if any(sp == t for sp in selected_norm for t in tokens_norm):
+                tokens = [_keyize(t) for t in _split_tokens(row[col])]
+                if any(_normalize_panel_name(t, selected_area) == _normalize_panel_name(sp, selected_area)for t in tokens for sp in selected_panels):
                     dcc_bases = _split_tokens(row[dcc_col_cmp])
                     for b in dcc_bases:
                         tagged_bases.append((b, "MC"))
@@ -531,10 +475,8 @@ if cmp_path and os.path.exists(cmp_path):
         # --- INAP ---
         for col in inap_cols:
             for _, row in cmp_df.iterrows():
-                tokens = _split_tokens(row[col])
-                tokens_norm = [_normalize_panel_name(t, selected_area, selected_floor) for t in tokens]
-                selected_norm = [_normalize_panel_name(sp, selected_area, selected_floor) for sp in selected_panels]
-                if any(sp == t for sp in selected_norm for t in tokens_norm):
+                tokens = [_keyize(t) for t in _split_tokens(row[col])]
+                if any(_normalize_panel_name(t, selected_area) == _normalize_panel_name(sp, selected_area)for t in tokens for sp in selected_panels):
                     dcc_bases = _split_tokens(row[dcc_col_cmp])
                     for b in dcc_bases:
                         tagged_bases.append((b, "INAP"))
@@ -556,10 +498,6 @@ if cmp_path and os.path.exists(cmp_path):
             if c:
                 resolved.append((c, tag))
 
-        st.sidebar.write("【DEBUG】tagged_bases:", tagged_bases)
-        st.sidebar.write("【DEBUG】merged.columns 範例:", merged.columns[:20].tolist())
-        st.sidebar.write("【DEBUG】resolved:", resolved)
-
         extra_cols = []
         extra_tags = {}
         for c, tag in resolved:
@@ -569,7 +507,6 @@ if cmp_path and os.path.exists(cmp_path):
 
         st.sidebar.write("【CMP】實際映射到欄位:", extra_cols)
         st.sidebar.write("【CMP】欄位標籤:", extra_tags)
-
 
     except Exception as e:
         st.warning(f"讀取 ComparisonTable 失敗：{e}")
@@ -594,35 +531,32 @@ if selected_area == "Huai_an":
 value_cols = []
 
 if selected_area == "Huai_an":
+    # 使用 mapping 建立反查：看板 → DCC
     huai_an_mapping, _ = build_huai_an_mapping(layout_df, dcc_df.columns)
-    value_cols = []
 
     for panel in selected_panels:
-        if panel not in huai_an_mapping:
-            continue
-        dcc_list = huai_an_mapping[panel]
-        st.sidebar.write(f"🔍 看板 {panel} → 對應 DCC: {dcc_list}")
+        if panel in huai_an_mapping:
+            dcc_list = huai_an_mapping[panel]  # e.g. ["TCV_02", "TCV_03"]
+            for dcc_base in dcc_list:
+                dcc_variants = {
+                    dcc_base,
+                    dcc_base.replace("_", ""),
+                    dcc_base.replace("TCV_", "TT"),
+                    dcc_base.replace("TCV_", "TT").replace("_", "")
+                }
+                for c in merged.columns:
+                    for variant in dcc_variants:
+                        if re.search(variant, c.replace("_", ""), re.I):
+                            if any(suf in c for suf in ["_CV5", "_TT4", ".PID_CV", ".PV"]):
+                                value_cols.append(c)
+                                break
 
-        for dcc_base in dcc_list:
-            # 模糊比對：忽略底線、大小寫，只要部分名稱對得上就算匹配
-            dcc_key = re.sub(r"[_\s]", "", dcc_base).upper()
-
-            matched = [
-                c for c in merged.columns
-                if dcc_key in re.sub(r"[_\s]", "", str(c)).upper()
-                and any(suf in c for suf in ["_CV5", "_TT4", ".PID_CV", ".PV"])
-            ]
-
-            if matched:
-                for m in matched:
-                    if m not in value_cols:
-                        value_cols.append(m)
-                        st.sidebar.write(f"✅ 匹配成功：{dcc_base} → {m}")
-            else:
-                st.sidebar.write(f"⚠️ 未找到對應欄位：{dcc_base}")
-
-    st.sidebar.write("【DEBUG】Huai_an 最終 value_cols:", value_cols)
-
+else:
+    for d in related_dccs:
+        for suf in ['_CV5', '_TT4', '.PID_CV', '.PV']:
+            col = d + suf
+            if col in merged.columns:
+                value_cols.append(col)
 
 value_cols += pv_cols + extra_cols
 value_cols = list(dict.fromkeys(value_cols))  # 去重、保序
@@ -663,7 +597,6 @@ plot_df["DateTime"] = plot_df["DateTime"].dt.floor(_base_unit)
 plot_df = plot_df.groupby("DateTime", as_index=False).last()
 
 st.sidebar.write("【DEBUG】extra_tags內容：", extra_tags)
-
 
 # === 畫圖 ===
 # === 【新增】偵測未被匹配到的 MC/INAP 欄位 ===
