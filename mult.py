@@ -682,10 +682,29 @@ for col in value_cols:
 
 # === 設定圖表樣式 ===
 fig.update_layout(
-    title=f"{selected_area} / {selected_factory} / {selected_floor}",
-    xaxis=dict(rangeslider=dict(visible=True)),
-    hovermode="x unified",
+    hovermode="x",
+    xaxis=dict(
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikedash="dot",
+        spikecolor="black",
+        spikethickness=1.5
+    ),
+    hoverdistance=50,
+    spikedistance=50,
+    hoverlabel=dict(
+        bgcolor="white",
+        font_size=12,
+        font_color="black"
+    )
 )
+
+
+# ⭐ 最重要的：把 hover box 固定在右側
+fig.update_layout(hoverlabel_align='right')
+
+
 fig.update_yaxes(title_text="風門開度 (%)", secondary_y=False)
 fig.update_yaxes(title_text="溫度 (°C)", secondary_y=True)
 st.plotly_chart(fig, use_container_width=True)
