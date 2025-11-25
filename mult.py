@@ -684,6 +684,7 @@ for col in value_cols:
 fig.update_layout(
     title=f"{selected_area} / {selected_factory} / {selected_floor}",
     xaxis=dict(rangeslider=dict(visible=True)),
+    hovermode="x unified",
 )
 fig.update_yaxes(title_text="風門開度 (%)", secondary_y=False)
 fig.update_yaxes(title_text="溫度 (°C)", secondary_y=True)
